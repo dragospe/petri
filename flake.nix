@@ -59,7 +59,8 @@
               hspkgs.apply-refact # automatic refactorings, ties in with hlint
               hspkgs.fourmolu # formatter for haskell code
               hspkgs.zlib # Needed for... reasons. Google "zlib haskell nix"
-              #hspkgs.stan # Broken, as of 2023-12-30
+              hspkgs.stan # static analysis
+              hspkgs.ghcid
 
               # Nix
               pkgs.deadnix # Dead code analysis for nix

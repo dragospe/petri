@@ -26,15 +26,15 @@ format_check : format_check_haskell format_check_nix format_check_cabal
 
 # Run stylish-haskell of .hs files
 .PHONY: format_haskell
-format_haskell: requires_nix_shell
+format_haskell: 
 	$(call find_exec_all_fn, $(FIND_HASKELL_SOURCES), fourmolu -c -m inplace)
 
 # Apply hlint suggestions
 .PHONY: lint
-lint: requires_nix_shell
+lint: 
 	$(call find_exec_one_by_one_fn, $(FIND_HASKELL_SOURCES), hlint -j --refactor --refactor-options="-i")
 
 # Check hlint suggestions
 .PHONY: lint_check
-lint_check: requires_nix_shell
+lint_check: 
 	$(call find_exec_all_fn, $(FIND_HASKELL_SOURCES), hlint -j)
