@@ -25,6 +25,7 @@ library
         Data.Petri.Types.Transition
         Data.Petri.Validation.FlowRelation
         Data.Petri
+        Data.Petri.CE
 
     hs-source-dirs:     src
     default-language:   GHC2021

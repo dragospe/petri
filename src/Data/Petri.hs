@@ -24,11 +24,17 @@ module Data.Petri (
   -- | * Queries
   member,
   -- | * Operations
+  sPreset,
+  tPreset,
   preset,
+  sPostset,
+  tPostset,
   postset,
   -- | * Errors
   PlaceNotFound,
+  PlaceNotFoundLabel,
   TransitionNotFound,
+  TransitionNotFoundLabel,
 )
 where
 
