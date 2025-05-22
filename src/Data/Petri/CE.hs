@@ -1,129 +1,165 @@
 {-# LANGUAGE OverloadedLabels #-}
+{-# LANGUAGE PatternSynonyms #-}
 
--- | Module: Data.Petri.CE
--- Description: Condition-Event Systems
---
--- A condition-event system is a petri net where each place may hold at most one token,
--- and a transition is fireable only if all input places have tokens and all output places lack
--- tokens
+{- | Module: Data.Petri.CE
+Description: Condition-Event Systems
 
-{- Note (Peter, 2025-05-22): There's a couple of trade-offs we can make for performance vs
-diagnostics.
+A condition-event system is a petri net where each place may hold at most one token,
+and a transition is fireable only if all input places have tokens and all output places lack
+tokens
 -}
-
-
-module Data.Petri.CE where
+module Data.Petri.CE (
+  FilledState (..),
+  CENet (CENet, getCENet),
+  enabled,
+  EventNotEnabledLabel,
+  EventNotEnabled,
+  fire,
+) where
 
 import Prelude
 
-import Data.Petri
-    ( Place(..),
-      Transition,
-      PetriNet,
-      TransitionNotFoundLabel,
-      tPreset,
-      tPostset)
-import Data.Petri.Types.Net (PetriNet (s))
-import Control.Monad.Error.Class
-import Data.Row
-import Data.Set qualified as Set
-import Data.Set (Set, (\\))
+import Control.Monad.Error.Class (MonadError, throwError)
+import Data.Foldable (foldl')
+import Data.Kind (Type)
+import Data.Map.Strict (Map, (!))
+import Data.Map.Strict qualified as Map
 import Data.Monoid (All (All, getAll))
-import Data.Kind ( Type )
+import Data.Petri (
+  PetriNet (s),
+  PlaceIndex,
+  Places (Places, getPlaces),
+  TransitionIndex,
+  TransitionNotFoundLabel,
+  tPostset,
+  tPreset,
+ )
+import Data.Row (
+  AllUniqueLabels,
+  Row,
+  Var,
+  pattern IsJust,
+  type (.!),
+  type (≈),
+ )
+import Data.Set (Set)
+import Data.Set qualified as Set
 
 data FilledState = Empty | Full
   deriving stock (Eq, Show, Ord)
 
--- Probably want to newtype these eventually
-type Event index = Transition index
-type Condition index  = Place (index, FilledState)
-
-isEmpty :: Condition index -> Bool
-isEmpty (Place (_index, filledState)) = filledState == Empty
-
-isFull :: Condition index -> Bool
-isFull (Place (_index, filledState)) = filledState == Full
-
 -- | A Condition-Event net is one where the places carry either one or none tokens.
-newtype CENet s t = CENet (PetriNet (s, FilledState) t)
-  deriving newtype (Show)
+newtype CENet si ti fi = CENet {getCENet :: PetriNet si ti fi FilledState ()}
+  deriving newtype (Show, Eq, Ord)
 
-enabled :: forall (m :: Type -> Type) (e :: Row Type) (t :: Type) (s :: Type).
-  Ord (s, FilledState)
-  => Ord t
-  => MonadError (Var e) m
-  => (TransitionNotFoundLabel e t)
-  =>
-  Event t -> CENet s t -> m Bool
+enabled ::
+  forall
+    (m :: Type -> Type)
+    (e :: Row Type)
+    (si :: Type)
+    (ti :: Type)
+    (fi :: Type).
+  (Ord ti) =>
+  (Ord si) =>
+  (MonadError (Var e) m) =>
+  (TransitionNotFoundLabel e ti) =>
+  TransitionIndex ti ->
+  CENet si ti fi ->
+  m Bool
 enabled event (CENet net) = do
   pre <- net `tPreset` event
   post <- net `tPostset` event
   let
+    ps = getPlaces (s net)
     preFull :: All
-    preFull = Set.foldr (\a b -> All (isFull a) <> b) (All True) pre
+    preFull = Set.foldr (\a b -> All ((ps ! a) == Full) <> b) (All True) pre
     postEmpty :: All
-    postEmpty = Set.foldr (\a b -> All (isEmpty a) <> b) (All True) post
+    postEmpty = Set.foldr (\a b -> All ((ps ! a) == Empty) <> b) (All True) post
   pure . getAll $ preFull <> postEmpty
 
-
 -- TODO: We do this in two passes, but it could be done in one.
-fire :: forall (m :: Type -> Type) (e :: Row Type) (s :: Type) (t :: Type).
-  MonadError (Var e) m
-  => Ord t
-  => Ord s
-  => TransitionNotFoundLabel e t
-  => EventNotEnabledLabel e s t
-  => CENet s t
-  -> Event t
-  -> m (CENet s t)
-fire (CENet net) event = do
-  --
+fire ::
+  forall (m :: Type -> Type) (e :: Row Type) (si :: Type) (ti :: Type) (fi :: Type).
+  (MonadError (Var e) m) =>
+  (Ord ti) =>
+  (Ord si) =>
+  (TransitionNotFoundLabel e ti) =>
+  (EventNotEnabledLabel e si ti) =>
+  CENet si ti fi ->
+  TransitionIndex ti ->
+  m (CENet si ti fi)
+fire cen@(CENet net) event = do
+  let
+    ps = getPlaces . s $ net
   pre <- net `tPreset` event
   post <- net `tPostset` event
-  let
-    preEmpty :: Set (Condition s)
-    preEmpty = Set.filter isEmpty pre
 
-    postFull :: Set (Condition s)
-    postFull = Set.filter isFull post
+  -- First pass is in "enabled": we first check if the
+  -- transition is fireable at all
+  b <- enabled event cen
+  if not b
+    then -- If its not, then we do some extra work to report why
 
-  if not (Set.null preEmpty && Set.null postFull)
-  then throwError (varyEventNotEnabled event preEmpty postFull)
-  else
-    let
-       unaffectedPlaces = s net \\ pre \\ post
-       affectedPlaces =
-          Set.union
-          (Set.map (\(Place (index, _)) -> Place (index, Empty)) pre)
-          (Set.map (\(Place (index, _)) -> Place (index, Full)) post)
+      let
+        emptyPres =
+          Set.fromList . Map.keys $
+            Map.filterWithKey
+              (\k a -> k `elem` pre && a == Empty)
+              ps
 
-       newPlaces = Set.union unaffectedPlaces affectedPlaces
-    in
-      pure $ CENet (net {s = newPlaces})
+        fullPosts =
+          Set.fromList . Map.keys $
+            Map.filterWithKey
+              (\k a -> k `elem` post && a == Full)
+              ps
+       in
+        throwError $ varyEventNotEnabled event emptyPres fullPosts
+    else -- If it is, then we pass over the map again to make
+    -- all of the inputs to the transition empty and all outputs full
 
+      let
+        mkEmpty ::
+          Map (PlaceIndex si) FilledState ->
+          PlaceIndex si ->
+          Map (PlaceIndex si) FilledState
+        mkEmpty m k = Map.update (const (Just Empty)) k m
+
+        emptiedPres :: Map (PlaceIndex si) FilledState
+        emptiedPres = foldl' mkEmpty ps pre
+
+        mkFull ::
+          Map (PlaceIndex si) FilledState ->
+          PlaceIndex si ->
+          Map (PlaceIndex si) FilledState
+        mkFull m k = Map.update (const (Just Full)) k m
+
+        filledPosts :: Map (PlaceIndex si) FilledState
+        filledPosts = foldl' mkFull emptiedPres post
+       in
+        pure $ CENet (net {s = Places filledPosts})
 
 --------------------------------------------------------------------------------
 -- Errors
 
-data EventNotEnabled s t = EventNotEnabled
-  { event :: !(Event t)
-  , emptyInputs :: !(Set (Condition s))
-  , fullOutputs :: !(Set (Condition s))
+data EventNotEnabled si ti = EventNotEnabled
+  { transition :: !(TransitionIndex ti)
+  , emptyInputs :: !(Set (PlaceIndex si))
+  , fullOutputs :: !(Set (PlaceIndex si))
   }
   deriving stock (Ord, Show, Eq)
 
 data TransitionState s t = Enabled | NotEnabled (EventNotEnabled s t)
   deriving stock (Ord, Show, Eq)
 
-type EventNotEnabledLabel (r :: Row Type) (s :: Type) (t :: Type) =
-  (AllUniqueLabels r, r .! "eventNotEnabled" ≈ EventNotEnabled s t)
+type EventNotEnabledLabel (r :: Row Type) (si :: Type) (ti :: Type) =
+  (AllUniqueLabels r, r .! "eventNotEnabled" ≈ EventNotEnabled si ti)
 
 varyEventNotEnabled ::
-  forall (s :: Type) (t :: Type) (r :: Row Type).
-  (EventNotEnabledLabel r s t) =>
-  Event t ->
-  Set (Condition s) ->
-  Set (Condition s) ->
+  forall (si :: Type) (ti :: Type) (r :: Row Type).
+  (EventNotEnabledLabel r si ti) =>
+  TransitionIndex ti ->
+  Set (PlaceIndex si) ->
+  Set (PlaceIndex si) ->
   Var r
 varyEventNotEnabled event inputs outputs =
   IsJust #"eventNotEnabled" $ EventNotEnabled event inputs outputs
