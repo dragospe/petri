@@ -1,0 +1,10 @@
+packages:
+  ./
+
+package petri
+  tests: True
+
+test-show-details: direct
+
+constraints:
+  zlib +bundled-c-zlib

@@ -1,0 +1,16 @@
+cradle:
+  multi:
+    # - path: "ignore/"
+    #   config: {cradle: {none: }}
+
+    - path: "src"
+      config: {cradle: {cabal: {component: "lib:petri"}}}
+
+    - path: "app"
+      config: {cradle: {cabal: {component: "petri:petri-exe"}}}
+
+    - path: "test"
+      config: {cradle: {cabal: {component: "petri:petri-test"}}}
+
+    - path: "bench"
+      config: {cradle: {cabal: {component: "petri:petri-bench"}}}
