@@ -16,8 +16,7 @@ tests :: TestTree
 tests =
   testGroup
     "CENet Sanity Check"
-    [ testGroup "sample1" $
-        [ testCase "sample1 has valid flow relation" $
+    [ testGroup "sample1" [ testCase "sample1 has valid flow relation" $
             assertBool
               "sample1 flow relation invalid"
               (isValidFlowRelation . getCENet $ sample1)
@@ -34,9 +33,8 @@ tests =
                     (TransitionIndex "bogus")
                 )
         ]
-    , testGroup "fig20" $
-        [ testCase "fig20 has a valid flow relation"
-            $ assertBool
+    , testGroup "fig20" [ testCase "fig20 has a valid flow relation" $
+            assertBool
               "fig20 flow relation invalid"
               ( isValidFlowRelation . getCENet . markFig20 $
                   [Empty, Empty, Empty, Empty, Empty]

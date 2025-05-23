@@ -119,8 +119,9 @@ type NodeIndex (si :: Type) (ti :: Type) =
 newtype PlaceIndex si = PlaceIndex si
   deriving newtype (Ord, Eq, Show)
 
--- | Allows us to use {-# LANGUAGE OverloadedStrings #-} to make specifying
--- these less annoying
+{- | Allows us to use {\-# LANGUAGE OverloadedStrings #-\} to make specifying
+these less annoying
+-}
 instance IsString (PlaceIndex String) where
   fromString = PlaceIndex
 
@@ -155,25 +156,28 @@ instance IsString (ArcIndex String) where
   fromString = ArcIndex
 
 {- | The "Flow relation" is a binary relation $(S x T) U (T x S)$
-TODO: Switch this to use variants?
+
+We label each arc with some (unique) index and additionally allow the arcs
+to carry arbitrary data
 -}
-newtype FlowRelation (si :: Type) (ti :: Type) (fi :: Type)
+newtype FlowRelation (si :: Type) (ti :: Type) (fi :: Type) (f :: Type)
   = FlowRelation
       ( Map
           (ArcIndex fi)
           ( Either
               (PlaceIndex si, TransitionIndex ti)
               (TransitionIndex ti, PlaceIndex si)
+          , f
           )
       )
   deriving newtype (Eq, Ord, Show)
 
 -- FIXME: This uses the by-the-book definition. There's probably a more efficient way.
 isValidFlowRelation ::
-  forall si ti fi s t.
+  forall si ti fi s t f.
   (Ord si) =>
   (Ord ti) =>
-  PetriNet si ti fi s t ->
+  PetriNet si ti fi s t f ->
   Bool
 isValidFlowRelation
   ( PetriNet
@@ -190,7 +194,7 @@ isValidFlowRelation
       t'' = Set.fromList . Map.keys $ t'
 
       f'' :: Set (Either (PlaceIndex si, TransitionIndex ti) (TransitionIndex ti, PlaceIndex si))
-      f'' = Set.fromList . Map.elems $ f'
+      f'' = Set.fromList $ Map.elems $ Map.map fst f'
 
 --------------------------------------------------------------------------------
 -- Net
@@ -198,50 +202,50 @@ isValidFlowRelation
 {- | A PetriNet as a new type. Note that, since this is being used on the front end,
 | its not necessarily true that the flow relation is valid.
 -}
-data PetriNet (si :: Type) (ti :: Type) (fi :: Type) (s :: Type) (t :: Type) = PetriNet
+data PetriNet (si :: Type) (ti :: Type) (fi :: Type) (s :: Type) (t :: Type) (f :: Type) = PetriNet
   { s :: Places si s
   -- ^ "S" elements -- typically "places"
   , t :: Transitions ti t
   -- ^ "T" elements -- typically "transitions"
-  , f :: FlowRelation si ti fi
+  , f :: FlowRelation si ti fi f
   -- ^ "Flow relation" -- input/output mappings
   }
   deriving stock (Eq, Ord, Show)
 
-places :: PetriNet si ti fi s t -> Places si s
+places :: PetriNet si ti fi s t f -> Places si s
 places = s
 
-transitions :: PetriNet si ti fi s t -> Transitions ti t
+transitions :: PetriNet si ti fi s t f -> Transitions ti t
 transitions = t
 
-flowRelation :: PetriNet si ti fi s t -> FlowRelation si ti fi
+flowRelation :: PetriNet si ti fi s t f -> FlowRelation si ti fi f
 flowRelation = f
 
 --------------------------------------------------------------------------------
 -- Petri Net
 
 sMember ::
-  forall (si :: Type) (ti :: Type) (fi :: Type) (s :: Type) (t :: Type).
+  forall (si :: Type) (ti :: Type) (fi :: Type) (s :: Type) (t :: Type) (f :: Type).
   (Ord si) =>
   PlaceIndex si ->
-  PetriNet si ti fi s t ->
+  PetriNet si ti fi s t f ->
   Bool
 sMember s' (PetriNet {s}) = Map.member s' (getPlaces s)
 
 tMember ::
-  forall (si :: Type) (ti :: Type) (fi :: Type) (s :: Type) (t :: Type).
+  forall (si :: Type) (ti :: Type) (fi :: Type) (s :: Type) (t :: Type) (f :: Type).
   (Ord ti) =>
   TransitionIndex ti ->
-  PetriNet si ti fi s t ->
+  PetriNet si ti fi s t f ->
   Bool
 tMember t' (PetriNet {t}) = Map.member t' (getTransitions t)
 
 member ::
-  forall (si :: Type) (ti :: Type) (fi :: Type) (s :: Type) (t :: Type).
+  forall (si :: Type) (ti :: Type) (fi :: Type) (s :: Type) (t :: Type) (f :: Type).
   (Ord si) =>
   (Ord ti) =>
   Var (NodeIndex si ti) ->
-  PetriNet si ti fi s t ->
+  PetriNet si ti fi s t f ->
   Bool
 member node net =
   switch node $
@@ -259,13 +263,14 @@ guardSMember ::
     (fi :: Type)
     (s :: Type)
     (t :: Type)
+    (f :: Type)
     (m :: Type -> Type)
     (r :: Row Type).
   (Ord si) =>
   (PlaceNotFoundLabel r si) =>
   (MonadError (Var r) m) =>
   PlaceIndex si ->
-  PetriNet si ti fi s t ->
+  PetriNet si ti fi s t f ->
   m ()
 guardSMember placeIndex net =
   throwGuard (sMember placeIndex net) $ varyPlaceNotFound placeIndex
@@ -277,13 +282,14 @@ guardTMember ::
     (fi :: Type)
     (s :: Type)
     (t :: Type)
+    (f :: Type)
     (m :: Type -> Type)
     (r :: Row Type).
   (Ord ti) =>
   (TransitionNotFoundLabel r ti) =>
   (MonadError (Var (r)) m) =>
   TransitionIndex ti ->
-  PetriNet si ti fi s t ->
+  PetriNet si ti fi s t f ->
   m ()
 guardTMember t net =
   throwGuard (tMember t net) $ varyTransitionNotFound t
@@ -298,13 +304,14 @@ sPreset ::
     (fi :: Type)
     (s :: Type)
     (t :: Type)
+    (f :: Type)
     (m :: Type -> Type)
     (e :: Row Type).
   (Ord si) =>
   (Ord ti) =>
   (PlaceNotFoundLabel e si) =>
   (MonadError (Var e) m) =>
-  PetriNet si ti fi s t ->
+  PetriNet si ti fi s t f ->
   PlaceIndex si ->
   m (Set (TransitionIndex ti))
 sPreset net@(PetriNet {f = FlowRelation f'}) s = do
@@ -315,6 +322,7 @@ sPreset net@(PetriNet {f = FlowRelation f'}) s = do
       . setRights
       . Set.fromList
       . Map.elems
+      . Map.map fst
     $ f'
 
 tPreset ::
@@ -324,13 +332,14 @@ tPreset ::
     (fi :: Type)
     (s :: Type)
     (t :: Type)
+    (f :: Type)
     (m :: Type -> Type)
     (e :: Row Type).
   (Ord si) =>
   (Ord ti) =>
   (TransitionNotFoundLabel e ti) =>
   (MonadError (Var e) m) =>
-  PetriNet si ti fi s t ->
+  PetriNet si ti fi s t f ->
   TransitionIndex ti ->
   m (Set (PlaceIndex si))
 tPreset net@(PetriNet {f = FlowRelation f'}) t = do
@@ -341,6 +350,7 @@ tPreset net@(PetriNet {f = FlowRelation f'}) t = do
       . setLefts
       . Set.fromList
       . Map.elems
+      . Map.map fst
     $ f'
 
 {- | Give a node (either place or transition), return all nodes in the preset.
@@ -354,6 +364,7 @@ preset ::
     (fi :: Type)
     (s :: Type)
     (t :: Type)
+    (f :: Type)
     (m :: Type -> Type)
     (e :: Row Type).
   (Ord si) =>
@@ -361,7 +372,7 @@ preset ::
   (TransitionNotFoundLabel e ti) =>
   (PlaceNotFoundLabel e si) =>
   (MonadError (Var e) m) =>
-  PetriNet si ti fi s t ->
+  PetriNet si ti fi s t f ->
   Var (NodeIndex si ti) ->
   m (Either (Set (PlaceIndex si)) (Set (TransitionIndex ti)))
 preset net node =
@@ -377,13 +388,14 @@ sPostset ::
     (fi :: Type)
     (s :: Type)
     (t :: Type)
+    (f :: Type)
     (m :: Type -> Type)
     (e :: Row Type).
   (Ord si) =>
   (Ord ti) =>
   (PlaceNotFoundLabel e si) =>
   (MonadError (Var e) m) =>
-  PetriNet si ti fi s t ->
+  PetriNet si ti fi s t f ->
   PlaceIndex si ->
   m (Set (TransitionIndex ti))
 sPostset net@(PetriNet {f = FlowRelation f'}) s = do
@@ -394,6 +406,7 @@ sPostset net@(PetriNet {f = FlowRelation f'}) s = do
       . setLefts
       . Set.fromList
       . Map.elems
+      . Map.map fst
     $ f'
 
 tPostset ::
@@ -403,13 +416,14 @@ tPostset ::
     (fi :: Type)
     (s :: Type)
     (t :: Type)
+    (f :: Type)
     (m :: Type -> Type)
     (e :: Row Type).
   (Ord si) =>
   (Ord ti) =>
   (TransitionNotFoundLabel e ti) =>
   (MonadError (Var e) m) =>
-  PetriNet si ti fi s t ->
+  PetriNet si ti fi s t f ->
   TransitionIndex ti ->
   m (Set (PlaceIndex si))
 tPostset net@(PetriNet {f = FlowRelation f'}) t = do
@@ -420,6 +434,7 @@ tPostset net@(PetriNet {f = FlowRelation f'}) t = do
       . setRights
       . Set.fromList
       . Map.elems
+      . Map.map fst
     $ f'
 
 {- | Give a  nodes (either place or transition), return all nodes in the postset.
@@ -432,6 +447,7 @@ postset ::
     (fi :: Type)
     (s :: Type)
     (t :: Type)
+    (f :: Type)
     (m :: Type -> Type)
     (e :: Row Type).
   (Ord si) =>
@@ -439,7 +455,7 @@ postset ::
   (TransitionNotFoundLabel e ti) =>
   (PlaceNotFoundLabel e si) =>
   (MonadError (Var e) m) =>
-  PetriNet si ti fi s t ->
+  PetriNet si ti fi s t f ->
   Var (NodeIndex si ti) ->
   m (Either (Set (PlaceIndex si)) (Set (TransitionIndex ti)))
 postset net node =

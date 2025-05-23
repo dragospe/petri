@@ -49,7 +49,7 @@ data FilledState = Empty | Full
   deriving stock (Eq, Show, Ord)
 
 -- | A Condition-Event net is one where the places carry either one or none tokens.
-newtype CENet si ti fi = CENet {getCENet :: PetriNet si ti fi FilledState ()}
+newtype CENet si ti fi = CENet {getCENet :: PetriNet si ti fi FilledState () ()}
   deriving newtype (Show, Eq, Ord)
 
 enabled ::

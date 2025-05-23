@@ -52,16 +52,20 @@ sample1_t = Transitions . Map.fromList $ zip sample1_ti [() | _ <- [0 :: Int ..]
 
 -- Here we make heavy use of Overloaded strings
 sample1_arcs ::
-  [ Either
-      (PlaceIndex String, TransitionIndex String)
-      (TransitionIndex String, PlaceIndex String)
+  [ ( Either
+        (PlaceIndex String, TransitionIndex String)
+        (TransitionIndex String, PlaceIndex String)
+    , ()
+    )
   ]
 sample1_arcs =
-  [ Left ("p0", "t0")
-  , Right ("t0", "p1")
-  ]
+  zip
+    [ Left ("p0", "t0")
+    , Right ("t0", "p1")
+    ]
+    [() | _ <- [(0 :: Int) ..]]
 
-sample1_flow :: FlowRelation String String String
+sample1_flow :: FlowRelation String String String ()
 sample1_flow =
   FlowRelation . Map.fromList $
     zip
@@ -98,27 +102,31 @@ sample1Fired = markSample1 [Empty, Full]
 -- Gives one CE net with 9 different cases
 
 fig20_arcs ::
-  [ Either
-      (PlaceIndex String, TransitionIndex String)
-      (TransitionIndex String, PlaceIndex String)
+  [ ( Either
+        (PlaceIndex String, TransitionIndex String)
+        (TransitionIndex String, PlaceIndex String)
+    , ()
+    )
   ]
 fig20_arcs =
-  [ Right ("e1", "b3")
-  , Left ("b3", "e4")
-  , Right ("e4", "b5")
-  , Left ("b5", "e5")
-  , Left ("b3", "e2")
-  , Left ("b1", "e1")
-  , Right ("e2", "b1")
-  , Right ("e5", "b1")
-  , Right ("e1", "b2")
-  , Left ("b2", "e2")
-  , Left ("b2", "e3")
-  , Right ("e3", "b4")
-  , Left ("b4", "e5")
-  ]
+  zip
+    [ Right ("e1", "b3")
+    , Left ("b3", "e4")
+    , Right ("e4", "b5")
+    , Left ("b5", "e5")
+    , Left ("b3", "e2")
+    , Left ("b1", "e1")
+    , Right ("e2", "b1")
+    , Right ("e5", "b1")
+    , Right ("e1", "b2")
+    , Left ("b2", "e2")
+    , Left ("b2", "e3")
+    , Right ("e3", "b4")
+    , Left ("b4", "e5")
+    ]
+    [() | _ :: Int <- [0 ..]]
 
-fig20_flow :: FlowRelation String String String
+fig20_flow :: FlowRelation String String String ()
 fig20_flow =
   FlowRelation . Map.fromList $
     zip
@@ -180,12 +188,15 @@ fig20_assertFiring initialState statesAndFirings =
         CENetStringy
 
     foldFunc net (t, states) = do
-      newNet <- (fire net t)
+      newNet <- fire net t
       if markFig20 states == newNet
         then pure newNet
-        else throwError . IsJust #"other" $ "fig20_assertFiring: failed\n" ++
-          "expected: " <> show (markFig20 states)
-          <> "\nactual: " <> show newNet
+        else
+          throwError . IsJust #"other" $
+            ("fig20_assertFiring: failed\n" <> ("expected: "
+                <> show (markFig20 states)
+                <> "\nactual: "
+                <> show newNet))
 
     initialNet :: CENetStringy
     initialNet = markFig20 initialState
