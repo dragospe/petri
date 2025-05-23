@@ -3,8 +3,6 @@ module Data.Petri.Set (u, x, setLefts, setRights) where
 
 import Prelude
 
-import Data.Kind (Type)
-import Data.Set (Set)
 import Data.Set qualified as Set
 
 {- | The heterogenous, disjoint set union function we need specifically for the petri spec.

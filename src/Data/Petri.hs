@@ -14,6 +14,7 @@
 |  - Clarity in intent. Even if we were dilligent in doing something like using
 |    @Either@ to ensure that they weren't clobbered, we could end up in a sitution
 |    with @Either Int Int@ and not be sure of the ordering.
+|  - Note that places can't have Ord/Show instances, because they contain TVars
 -}
 module Data.Petri (
   -- | * Nodes
@@ -34,6 +35,8 @@ module Data.Petri (
   -- | * Queries
   member,
   places,
+  freezePlaces,
+  eqPlaces,
   transitions,
   flowRelation,
   isValidFlowRelation,
@@ -55,10 +58,7 @@ where
 
 import Prelude
 
-import Control.Monad (unless, (>=>))
 import Control.Monad.Error.Class (MonadError, throwError)
-import Data.Kind (Type)
-import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Petri.Set (setLefts, setRights, u, x)
 import Data.Row (
@@ -73,9 +73,7 @@ import Data.Row (
   type (≈),
  )
 import Data.Row.Variants (Var, pattern IsJust)
-import Data.Set (Set)
 import Data.Set qualified as Set
-import Data.String (IsString (fromString))
 
 -- -- | Errors
 -- -- We use variant based errors. See:
@@ -125,11 +123,20 @@ these less annoying
 instance IsString (PlaceIndex String) where
   fromString = PlaceIndex
 
-newtype Place si s = Place (PlaceIndex si, s)
-  deriving newtype (Ord, Eq, Show)
+newtype Place si s = Place (PlaceIndex si, TVar s)
+  deriving newtype (Eq)
 
-newtype Places si s = Places {getPlaces :: Map (PlaceIndex si) s}
-  deriving newtype (Ord, Eq, Show)
+newtype Places si s = Places {getPlaces :: Map (PlaceIndex si) (TVar s)}
+  deriving newtype (Eq)
+
+freezePlaces :: Places si s -> STM (Map (PlaceIndex si) s)
+freezePlaces (Places places) = mapM readTVar places
+
+eqPlaces :: (Eq si) => (Eq s) => Places si s -> Places si s -> STM Bool
+eqPlaces p1 p2 = do
+  frozen1 <- freezePlaces p1
+  frozen2 <- freezePlaces p2
+  pure $ frozen1 == frozen2
 
 --------------------------------------------------------------------------------
 -- Transition
@@ -210,7 +217,7 @@ data PetriNet (si :: Type) (ti :: Type) (fi :: Type) (s :: Type) (t :: Type) (f 
   , f :: FlowRelation si ti fi f
   -- ^ "Flow relation" -- input/output mappings
   }
-  deriving stock (Eq, Ord, Show)
+  deriving stock (Eq)
 
 places :: PetriNet si ti fi s t f -> Places si s
 places = s
@@ -411,13 +418,13 @@ sPostset net@(PetriNet {f = FlowRelation f'}) s = do
 
 tPostset ::
   forall
+    (m :: Type -> Type)
     (si :: Type)
     (ti :: Type)
     (fi :: Type)
     (s :: Type)
     (t :: Type)
     (f :: Type)
-    (m :: Type -> Type)
     (e :: Row Type).
   (Ord si) =>
   (Ord ti) =>

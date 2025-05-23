@@ -58,7 +58,7 @@ common common
     , base
     , bytestring
     , containers
-    , row-types
+    , concurrency
     , data-default
     , deriving-aeson
     , directory
@@ -67,8 +67,14 @@ common common
     , mtl
     , pretty-show
     , prettyprinter
+    , relude
+    , row-types
     , text
     , vector
+
+  mixins:   base hiding (Prelude)
+          , relude (Relude as Prelude)
+          , relude hiding (Control.Monad.STM)
 
   ghc-options:
     -Wall -Wcompat -Wincomplete-uni-patterns
@@ -91,6 +97,8 @@ common test
 library
   import:          common
   hs-source-dirs:  src
+  build-depends:
+    stm
   exposed-modules:
     Data.Petri
     Data.Petri.Set

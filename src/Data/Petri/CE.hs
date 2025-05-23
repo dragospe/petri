@@ -11,24 +11,21 @@ tokens
 module Data.Petri.CE (
   FilledState (..),
   CENet (CENet, getCENet),
-  enabled,
+  mkIsEnabled,
   EventNotEnabledLabel,
   EventNotEnabled,
-  fire,
+  mkFiring,
 ) where
 
 import Prelude
 
-import Control.Monad.Error.Class (MonadError, throwError)
-import Data.Foldable (foldl')
-import Data.Kind (Type)
-import Data.Map.Strict (Map, (!))
-import Data.Map.Strict qualified as Map
-import Data.Monoid (All (All, getAll))
+import Control.Monad
+import Control.Monad.Error.Class (MonadError)
+import Data.Map.Strict ((!))
 import Data.Petri (
   PetriNet (s),
   PlaceIndex,
-  Places (Places, getPlaces),
+  Places (getPlaces),
   TransitionIndex,
   TransitionNotFoundLabel,
   tPostset,
@@ -42,17 +39,15 @@ import Data.Row (
   type (.!),
   type (≈),
  )
-import Data.Set (Set)
-import Data.Set qualified as Set
 
 data FilledState = Empty | Full
   deriving stock (Eq, Show, Ord)
 
 -- | A Condition-Event net is one where the places carry either one or none tokens.
 newtype CENet si ti fi = CENet {getCENet :: PetriNet si ti fi FilledState () ()}
-  deriving newtype (Show, Eq, Ord)
+  deriving newtype (Eq)
 
-enabled ::
+mkIsEnabled ::
   forall
     (m :: Type -> Type)
     (e :: Row Type)
@@ -65,78 +60,78 @@ enabled ::
   (TransitionNotFoundLabel e ti) =>
   TransitionIndex ti ->
   CENet si ti fi ->
-  m Bool
-enabled event (CENet net) = do
-  pre <- net `tPreset` event
-  post <- net `tPostset` event
+  m (STM Bool)
+mkIsEnabled event (CENet net) = do
   let
     ps = getPlaces (s net)
-    preFull :: All
-    preFull = Set.foldr (\a b -> All ((ps ! a) == Full) <> b) (All True) pre
-    postEmpty :: All
-    postEmpty = Set.foldr (\a b -> All ((ps ! a) == Empty) <> b) (All True) post
-  pure . getAll $ preFull <> postEmpty
+  pre :: Set (PlaceIndex si) <- net `tPreset` event
+  post <- tPostset @m net event
+
+  let
+    -- Checks that the TVars in the given places all match some particular state
+    -- TODO: We can factor this out
+    helper :: FilledState -> Set (PlaceIndex si) -> STM All
+    helper state =
+      foldM
+        ( \b a -> do
+            p <- readTVar (ps ! a)
+            pure $ All (p == state) <> b
+        )
+        (All True)
+
+  pure $ do
+    preFull <- helper Full pre
+    postEmpty <- helper Empty post
+    pure $ getAll $ preFull <> postEmpty
 
 -- TODO: We do this in two passes, but it could be done in one.
-fire ::
-  forall (m :: Type -> Type) (e :: Row Type) (si :: Type) (ti :: Type) (fi :: Type).
+-- TODO: Make this report the violated conditions
+mkFiring ::
+  forall (e :: Row Type) (m :: Type -> Type) (si :: Type) (ti :: Type) (fi :: Type).
   (MonadError (Var e) m) =>
   (Ord ti) =>
   (Ord si) =>
   (TransitionNotFoundLabel e ti) =>
-  (EventNotEnabledLabel e si ti) =>
+  -- FIXME: (EventNotEnabledLabel e si ti) =>
   CENet si ti fi ->
   TransitionIndex ti ->
-  m (CENet si ti fi)
-fire cen@(CENet net) event = do
+  m (STM ())
+mkFiring cen@(CENet net) event = do
   let
-    ps = getPlaces . s $ net
+    ps = getPlaces (s net)
   pre <- net `tPreset` event
   post <- net `tPostset` event
 
+  check <- mkIsEnabled event cen
+
   -- First pass is in "enabled": we first check if the
   -- transition is fireable at all
-  b <- enabled event cen
-  if not b
-    then -- If its not, then we do some extra work to report why
+  pure $ do
+    c <- check
+    if not c
+      then -- If its not, then we do some extra work to report why
+      -- FIXME: Peter, 2025-05-23: Going lax on the error reporting while I swtich to STM
 
-      let
-        emptyPres =
-          Set.fromList . Map.keys $
-            Map.filterWithKey
-              (\k a -> k `elem` pre && a == Empty)
-              ps
+      -- let
+      --   emptyPres =
+      --     Set.fromList . Map.keys $
+      --       Map.filterWithKey
+      --         (\k a -> k `Set.member` pre && a == Empty)
+      --         ps
 
-        fullPosts =
-          Set.fromList . Map.keys $
-            Map.filterWithKey
-              (\k a -> k `elem` post && a == Full)
-              ps
-       in
-        throwError $ varyEventNotEnabled event emptyPres fullPosts
-    else -- If it is, then we pass over the map again to make
-    -- all of the inputs to the transition empty and all outputs full
+      --   fullPosts =
+      --     Set.fromList . Map.keys $
+      --       Map.filterWithKey
+      --         (\k a -> k `Set.member` post && a == Full)
+      --         ps
+      --  in
+        error "unimplemented"
+      else do
+        -- If it is, then we pass over the map again to make
+        -- all of the inputs to the transition empty and all outputs full
 
-      let
-        mkEmpty ::
-          Map (PlaceIndex si) FilledState ->
-          PlaceIndex si ->
-          Map (PlaceIndex si) FilledState
-        mkEmpty m k = Map.update (const (Just Empty)) k m
-
-        emptiedPres :: Map (PlaceIndex si) FilledState
-        emptiedPres = foldl' mkEmpty ps pre
-
-        mkFull ::
-          Map (PlaceIndex si) FilledState ->
-          PlaceIndex si ->
-          Map (PlaceIndex si) FilledState
-        mkFull m k = Map.update (const (Just Full)) k m
-
-        filledPosts :: Map (PlaceIndex si) FilledState
-        filledPosts = foldl' mkFull emptiedPres post
-       in
-        pure $ CENet (net {s = Places filledPosts})
+        mapM_ (\placeIndex -> writeTVar (ps ! placeIndex) Empty) pre
+        mapM_ (\placeIndex -> writeTVar (ps ! placeIndex) Full) post
 
 --------------------------------------------------------------------------------
 -- Errors
@@ -154,12 +149,13 @@ data TransitionState s t = Enabled | NotEnabled (EventNotEnabled s t)
 type EventNotEnabledLabel (r :: Row Type) (si :: Type) (ti :: Type) =
   (AllUniqueLabels r, r .! "eventNotEnabled" ≈ EventNotEnabled si ti)
 
-varyEventNotEnabled ::
+-- FIXME
+_varyEventNotEnabled ::
   forall (si :: Type) (ti :: Type) (r :: Row Type).
   (EventNotEnabledLabel r si ti) =>
   TransitionIndex ti ->
   Set (PlaceIndex si) ->
   Set (PlaceIndex si) ->
   Var r
-varyEventNotEnabled event inputs outputs =
+_varyEventNotEnabled event inputs outputs =
   IsJust #"eventNotEnabled" $ EventNotEnabled event inputs outputs
