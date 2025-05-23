@@ -82,6 +82,12 @@ common common
   if !flag(development)
     ghc-options: -Werror
 
+common test
+  build-depends:
+    tasty
+    , tasty-hunit
+    , QuickCheck
+
 library
   import:          common
   hs-source-dirs:  src
@@ -91,7 +97,7 @@ library
     Data.Petri.CE
 
 library testlib
-  import: common
+  import: common, test
   hs-source-dirs: testlib
   build-depends:
     , petri
@@ -106,16 +112,14 @@ executable petri-exe
   ghc-options:    -threaded -rtsopts -with-rtsopts=-N
 
 test-suite petri-test
-  import:         common
+  import:         common, test
   type:           exitcode-stdio-1.0
   hs-source-dirs: test
   main-is:        Spec.hs
   build-depends:
     , petri
-    , QuickCheck
     , petri:testlib
-    , tasty
-    , tasty-hunit
+
   ghc-options:    -threaded -rtsopts -with-rtsopts=-N
 
 benchmark petri-bench

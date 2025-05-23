@@ -75,6 +75,7 @@ import Data.Row (
 import Data.Row.Variants (Var, pattern IsJust)
 import Data.Set (Set)
 import Data.Set qualified as Set
+import Data.String (IsString (fromString))
 
 -- -- | Errors
 -- -- We use variant based errors. See:
@@ -118,6 +119,11 @@ type NodeIndex (si :: Type) (ti :: Type) =
 newtype PlaceIndex si = PlaceIndex si
   deriving newtype (Ord, Eq, Show)
 
+-- | Allows us to use {-# LANGUAGE OverloadedStrings #-} to make specifying
+-- these less annoying
+instance IsString (PlaceIndex String) where
+  fromString = PlaceIndex
+
 newtype Place si s = Place (PlaceIndex si, s)
   deriving newtype (Ord, Eq, Show)
 
@@ -130,6 +136,9 @@ newtype Places si s = Places {getPlaces :: Map (PlaceIndex si) s}
 newtype TransitionIndex ti = TransitionIndex ti
   deriving newtype (Ord, Eq, Show)
 
+instance IsString (TransitionIndex String) where
+  fromString = TransitionIndex
+
 newtype Transition ti t = Transition (TransitionIndex ti, t)
   deriving newtype (Ord, Eq, Show)
 
@@ -141,6 +150,9 @@ newtype Transitions ti t = Transitions {getTransitions :: Map (TransitionIndex t
 
 newtype ArcIndex fi = ArcIndex fi
   deriving newtype (Ord, Eq, Show)
+
+instance IsString (ArcIndex String) where
+  fromString = ArcIndex
 
 {- | The "Flow relation" is a binary relation $(S x T) U (T x S)$
 TODO: Switch this to use variants?
