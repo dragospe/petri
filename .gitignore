@@ -1,6 +1,8 @@
 ### Nix ###
 result
 
+node_modules/
+
 ### Haskell ###
 dist
 dist-*

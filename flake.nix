@@ -3,7 +3,7 @@
   description = "petri";
 
   inputs.pre-commit-hooks.url = "github:cachix/pre-commit-hooks.nix";
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/release-24.11";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/release-25.05";
   inputs.flake-utils.url = "github:numtide/flake-utils";
 
   outputs = inputs@{ self, pre-commit-hooks, ... }:
@@ -51,6 +51,12 @@
             withHoogle = true;
             packages = p: [ p.petri ];
             buildInputs = [
+              # Node
+              pkgs.nodejs
+              pkgs.esbuild
+              pkgs.nodePackages.http-server
+              pkgs.typescript
+
               # Haskell
               hspkgs.cabal-install # the bog-standard "cabal" command
               hspkgs.cabal-fmt # cabal formatter
@@ -69,6 +75,10 @@
 
               # Shell
               pkgs.bashInteractive
+
+              # Command running
+              pkgs.just
+              pkgs.watchexec
             ];
           };
           defaultPackage = pkgs.petri;
