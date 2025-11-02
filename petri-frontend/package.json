@@ -10,9 +10,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@xyflow/react": "^12.9.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "@xyflow/react": "^12.9.0"
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",
